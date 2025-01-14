@@ -1,7 +1,15 @@
-variable "vpc_name" {
+variable "name" {
 
 }
 
 variable "vpc_cidr_block" {
+
+}
+
+variable "prefix" {
+
+}
+
+variable "separator" {
 
 }
