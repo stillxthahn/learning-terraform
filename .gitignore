@@ -1,3 +1,6 @@
+# Ignore all .env files globally
+**/.env
+
 # Local .terraform directories
 **/.terraform/*
 
