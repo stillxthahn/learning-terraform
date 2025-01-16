@@ -1,0 +1,7 @@
+boto3
+pandas
+mysql-connector-python
+fastapi
+requests
+uvicorn
+uuid
