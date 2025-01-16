@@ -12,9 +12,7 @@ services:
   api:
     container_name: api
     build: ./
-    depends_on:
-      - mysql
     links:
       - mysql
     ports:
-      - "3000:3000"
+      - "8000:8000"

@@ -1,13 +1,12 @@
 import pandas as pd
 import mysql.connector
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from flask import Flask, jsonify, request, render_template_string
 import requests
-import uvicorn
+
+app = Flask(__name__)
 
 API_URL = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol=IBM&interval=5min&outputsize=full&datatype=csv&apikey=4I3GM8BWYMYZZO28"
 
-app = FastAPI()
 current_line = 0 
 
 CREATE_TABLE_QUERY = """
@@ -29,102 +28,100 @@ INSERT IGNORE INTO IBM_STOCK (time, open, high, low, close, volume, symbol)
 VALUES (%s, %s, %s, %s, %s, %s, %s);
 """
 
+# Connect to the MySQL database
 mysql_connection = mysql.connector.connect(
-	host="mysql",
-	port=3306,
-	user="root",
-	password="root",
-	database="STOCK_STREAMING")
+    host="mysql",
+    port=3306,
+    user="root",
+    password="root",
+    database="STOCK_STREAMING"
+)
+cursor = mysql_connection.cursor()  # Create a cursor
 
-mysql_connection.cursor().execute(f"""SHOW TABLES LIKE 'IBM_STOCK'""")
-result = mysql_connection.fetchone()
+# Check if the table exists; if not, create it
+cursor.execute("SHOW TABLES LIKE 'IBM_STOCK'")
+result = cursor.fetchone()
 
 if result:
-	print("Table 'IBM_STOCK' already exists.")
+    print("Table 'IBM_STOCK' already exists.")
 else:
-	mysql_connection.execute(CREATE_TABLE_QUERY)
-	mysql_connection.commit()
-	print("Table 'IBM_STOCK' has been created successfully.")
+    cursor.execute(CREATE_TABLE_QUERY)
+    mysql_connection.commit()
+    print("Table 'IBM_STOCK' has been created successfully.")
 
 
-    
-@app.get("/", response_class=HTMLResponse)
-async def root():
-    return """
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>Welcome to stillxthahn_ Stock API</title>
-          </head>
-          <body>
-              <h1>Welcome to Stock API</h1>
-              <p>Step 1: Fetch real time IBM stock data and save it into stock-data.csv<code>http://127.0.0.1:8000/fetch</code> endpoint.</p>
-              <p>Step 2: Get real time stock data per request and insert it into database using <code>http://127.0.0.1:8000/stock</code> ending</p>
-            </div>
-          </body>
-        </html>
+@app.route("/")
+def home():
     """
+    Home route displays the API documentation.
+    """
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Welcome to stillxthahn_ Stock API</title>
+      </head>
+      <body>
+          <h1>Welcome to Stock API</h1>
+          <p>Step 1: Fetch real-time IBM stock data and save it into stock-data.csv using the <code>http://127.0.0.1:5000/fetch</code> endpoint.</p>
+          <p>Step 2: Get real-time stock data per request and insert it into the database using <code>http://127.0.0.1:5000/stock</code> endpoint.</p>
+        </div>
+      </body>
+    </html>
+    """
+    return render_template_string(html_content)
 
 
-@app.get("/fetch")
-async def fetch_data(file_name="stock-data.csv"):
-	"""
-	This api fetches real time IBM stock data and saves it into stock-data.csv
-	"""
-	response = requests.get(API_URL)
-	with open(file_name, 'wb') as file:
-		file.write(response.content)
+@app.route("/fetch", methods=["GET"])
+def fetch_data():
+    """
+    Fetch real-time IBM stock data and save it into stock-data.csv.
+    """
+    file_name = "stock-data.csv"
+    response = requests.get(API_URL)
+    with open(file_name, "wb") as file:
+        file.write(response.content)
 
-	data = pd.read_csv(file_name)
-	data['timestamp'] = pd.to_datetime(data['timestamp'])
-	data['symbol'] = 'IBM'
+    data = pd.read_csv(file_name)
+    data["timestamp"] = pd.to_datetime(data["timestamp"])
+    data["symbol"] = "IBM"
 
-	sorted_data = data.sort_values(by='timestamp', ascending=True)
-	sorted_data.to_csv(file_name, index=False)
-	return {"message": "Data initialized successfully"}
+    sorted_data = data.sort_values(by="timestamp", ascending=True)
+    sorted_data.to_csv(file_name, index=False)
+    return jsonify({"message": "Data initialized successfully"})
 
 
-@app.get("/stock")
-async def insert_database():
-	"""
-	This api gets real time stock data per request and inserts it into database
-	"""
+@app.route("/stock", methods=["GET"])
+def insert_database():
+    """
+    Insert stock data into the database from stock-data.csv, one row per request.
+    """
+    global current_line
 
-	global current_line 
+    df = pd.read_csv("stock-data.csv")
 
-	"""
-	io.StringIO is used to parse the CSV data obtained from S3. The CSV data is read from S3 as a binary string using obj['Body'].read(). 
-	This binary string is then decoded into a UTF-8 string using the decode() method. 
-	This decoded string is then passed to io.StringIO to create a file-like object that can be read using the csv.reader() method.
-	"""
+    if current_line >= len(df):
+        current_line = 0  
+        return jsonify({"error": "End of file reached, resetting to the first line"})
 
-	df = pd.read_csv("stock-data.csv")
+    row = df.iloc[current_line].to_dict()
+    current_line += 1  
 
-	if current_line >= len(df):
-		current_line = 0  
-		return {"error": "End of file reached, resetting to the first line"}
+    # Insert into database
+    cursor.execute(INSERT_QUERY, (
+        row["timestamp"],
+        row["open"],
+        row["high"],
+        row["low"],
+        row["close"],
+        row["volume"],
+        row["symbol"]
+    ))
+    mysql_connection.commit()
 
-	row = df.iloc[current_line].to_dict()  
-	current_line += 1  
-      
-
-	# INSERT INTO DATABASE
-	mysql_connection.execute(INSERT_QUERY, (
-		row['time'],
-		row['open'],
-		row['high'],
-		row['low'],
-		row['close'],
-		row['volume'],
-		row['symbol']
-	))
-	mysql_connection.commit()
-
-	return row
-    
+    return jsonify(row)
 
 
 if __name__ == "__main__":
-	
-	uvicorn.run(app, host="localhost", port=8000)
+    app.run(host="127.0.0.1", port=8000)

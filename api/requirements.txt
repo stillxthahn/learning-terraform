@@ -1,7 +1,7 @@
 boto3
 pandas
 mysql-connector-python
-fastapi
+flask
 requests
 uvicorn
 uuid
