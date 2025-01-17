@@ -78,7 +78,7 @@ def fetch_data():
     """
     Fetch real-time IBM stock data and save it into stock-data.csv.
     """
-    file_name = "stock-data.csv"
+    file_name = "/app/stock-data.csv"
     response = requests.get(API_URL)
     with open(file_name, "wb") as file:
         file.write(response.content)
@@ -124,4 +124,4 @@ def insert_database():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8000)
+    app.run(host="0.0.0.0", port="8000")
